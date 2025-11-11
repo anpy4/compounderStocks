@@ -21,13 +21,44 @@ class ROICCalculator(MetricCalculator):
             if financials.empty or balance_sheet.empty:
                 return None, "Keine Daten verfügbar"
 
-            # Operating Income (EBIT)
+            # Operating Income (EBIT) mit Fallback
+            operating_income = None
+
+            # 1. Direkter Zugriff
             if 'Operating Income' in financials.index:
                 operating_income = financials.loc['Operating Income'].iloc[0]
             elif 'EBIT' in financials.index:
                 operating_income = financials.loc['EBIT'].iloc[0]
-            else:
-                return None, "Operating Income nicht gefunden"
+
+            # 2. Von Pretax Income hochrechnen (EMPFOHLEN)
+            if operating_income is None:
+                try:
+                    pretax_income = financials.loc['Pretax Income'].iloc[0]
+                    interest_expense = financials.loc['Interest Expense'].iloc[
+                        0] if 'Interest Expense' in financials.index else 0
+                    interest_income = financials.loc['Interest Income'].iloc[
+                        0] if 'Interest Income' in financials.index else 0
+                    operating_income = pretax_income + interest_expense - interest_income
+                except:
+                    pass
+
+            # 3. Aus Revenue und Betriebsausgaben (Top-Down)
+            if operating_income is None:
+                try:
+                    total_revenue = financials.loc['Total Revenue'].iloc[0] if 'Total Revenue' in financials.index else \
+                    financials.loc['Operating Revenue'].iloc[0]
+                    sga = financials.loc['Selling General And Administration'].iloc[0]
+                    other_expenses = financials.loc['Professional Expense And Contract Services Expense'].iloc[0]
+                    operating_income = total_revenue - sga - other_expenses
+                except:
+                    pass
+
+            # 4. Normalized Income als Fallback
+            if operating_income is None and 'Normalized Income' in financials.index:
+                operating_income = financials.loc['Normalized Income'].iloc[0]
+
+            if operating_income is None:
+                return None, "Operating Income nicht berechenbar"
 
             # Tax Rate schätzen
             if 'Tax Provision' in financials.index and 'Pretax Income' in financials.index:

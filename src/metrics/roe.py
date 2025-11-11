@@ -17,8 +17,16 @@ class ROECalculator(MetricCalculator):
             if financials.empty or balance_sheet.empty:
                 return None, "Keine Daten verfügbar"
             net_income = financials.loc['Net Income'].iloc[0]
-            equity_current = balance_sheet.loc['Total Stockholder Equity'].iloc[0]
-            equity_previous = balance_sheet.loc['Total Stockholder Equity'].iloc[1]
+            for key in [
+                'Total Stockholder Equity',
+                'Stockholders Equity',
+                'Common Stock Equity',
+                'Total Equity Gross Minority Interest'
+            ]:
+                if key in balance_sheet.index:
+                    equity_current = balance_sheet.loc[key].iloc[0]
+                    equity_previous = balance_sheet.loc[key].iloc[1]
+                    break
             avg_equity = (equity_current + equity_previous) / 2
             if avg_equity <= 0:
                 return None, "Ungültiges Eigenkapital"

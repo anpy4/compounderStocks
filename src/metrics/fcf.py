@@ -22,19 +22,23 @@ class FCFMarginCalculator(MetricCalculator):
                 return None, "Free Cash Flow nicht berechenbar"
 
             # Revenue
-            if 'Total Revenue' in financials.index:
-                revenue = financials.loc['Total Revenue'].iloc[0]
-            elif 'Revenue' in financials.index:
-                revenue = financials.loc['Revenue'].iloc[0]
-            else:
-                return None, "Umsatz nicht gefunden"
+            revenue = None
+            for key in ['Total Revenue', 'Revenue']:
+                if key in financials.index:
+                    revenue = financials.loc[key].iloc[0]
+                    if revenue != 0:
+                        break
 
-            if revenue <= 0:
-                return None, "Ungültiger Umsatz"
+            if revenue is None or revenue == 0:
+                return None, "Umsatz ist Null oder nicht verfügbar"
 
-            fcf_margin = fcf / revenue
-            fcf_margin = float(fcf_margin)
-            return fcf_margin, self.classify(fcf_margin)
+            # FCF-Margin mit absoluten Werten
+            fcf_margin = fcf / abs(revenue) if revenue != 0 else None
+
+            if fcf_margin is None:
+                return None, "FCF-Margin nicht berechenbar"
+
+            return float(fcf_margin), self.classify(fcf_margin)
         except Exception as e:
             return None, f"Fehler bei FCF-Margin-Berechnung: {str(e)}"
 
