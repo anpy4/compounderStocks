@@ -58,7 +58,7 @@ def extract_yahoo_symbol(pyticker: Dict[str, Any]) -> Optional[str]:
 
 
 if __name__ == "__main__":
-    tickers = extract_index_members("SDAX")
+    tickers = extract_index_members("DAX")
 
     # tickers = extract_all_tickers()
     print(tickers)
