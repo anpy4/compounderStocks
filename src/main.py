@@ -6,6 +6,8 @@ from datetime import datetime
 
 def main():
     tickers = extract_all_tickers()
+
+    print(f"Gefundene Ticker: {len(tickers)}")
     sorted_results = analyze_batch(tickers)
     _store_results_to_json(sorted_results, "../compounder_analysis/results")
 

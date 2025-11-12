@@ -1,7 +1,7 @@
 import yfinance as yf
 from curl_cffi import requests
-from typing import Dict, Any
-
+from typing import Dict, Any, List
+import statistics
 from src.metrics.roe import ROECalculator
 from src.metrics.roic import ROICCalculator
 from src.metrics.fcf import FCFMarginCalculator
@@ -12,7 +12,62 @@ from src.thresholds import SCHWELLENWERTE
 
 
 
-# Hauptfunktion für umfassende Compounder-Analyse
+def _normalize_for_ranking(kennzahl: str, wert: float) -> float:
+    """
+    Normalisiert Kennzahlen für Ranking auf 0-1 Skala.
+    Höhere Werte = bessere Performance
+
+    Debt_Equity ist INVERS (niedriger = besser)
+    """
+    if wert is None or wert == 0:
+        return 0.0
+
+    # Für Debt/Equity: Invers, da niedriger besser ist
+    if kennzahl == 'Debt_to_Equity':
+        # Normalisiere: 0.5 → 1.0, 1.0 → 0.5, 1.5 → 0.33
+        return max(0.0, min(1.0, (1.5 - wert) / 1.5))
+
+    # Andere Kennzahlen: Höher = besser
+    # Begrenzte normalisierung (Cap bei realistische Maxima)
+    max_values = {
+        'ROE': 0.60,  # 60% ist ein extremes Maximum
+        'ROIC': 0.60,
+        'FCF_Margin': 0.50,  # 50% FCF-Margin ist sehr hoch
+        'Revenue_Growth': 0.50,  # 50% Revenue-Growth ist extrem
+        'EPS_Growth': 0.50,
+    }
+
+    max_val = max_values.get(kennzahl, 1.0)
+    return min(1.0, wert / max_val)
+
+
+def _calculate_average_performance(results: Dict[str, Any]) -> float:
+    """
+    Berechnet durchschnittliche Performance für Ranking innerhalb einer Kategorie.
+    Gibt Wert zwischen 0.0-1.0 zurück.
+
+    Nur erfüllte Kriterien werden berücksichtigt!
+    """
+    performances = []
+
+    # Nur Werte von erfüllten Kriterien
+    for kriterium, erfuellt in results['erfuellt_kriterien'].items():
+        if erfuellt:  # Nur wenn Kriterium erfüllt
+            # Extrahiere kennzahl-Name aus kriterium
+            # z.B. "ROE_min" → "ROE"
+            kennzahl_key = kriterium.replace('_min', '').replace('_ok', '')
+
+            if kennzahl_key in results['kennzahlen']:
+                wert = results['kennzahlen'][kennzahl_key]['wert']
+                if wert is not None:
+                    normalized = _normalize_for_ranking(kennzahl_key, wert)
+                    performances.append(normalized)
+
+    if performances:
+        return statistics.mean(performances)
+    else:
+        return 0.0
+
 
 def _analyze_compounder(ticker) -> Dict[str, Any]:
     """
@@ -30,7 +85,6 @@ def _analyze_compounder(ticker) -> Dict[str, Any]:
         'erfuellt_kriterien': {},
         'gesamtbewertung': {}
     }
-
 
     # Alle Kennzahlen berechnen
     roe_value, roe_bewertung = ROECalculator().calculate(ticker)
@@ -50,7 +104,7 @@ def _analyze_compounder(ticker) -> Dict[str, Any]:
         'Debt_to_Equity': {'wert': debt_equity_value, 'bewertung': debt_equity_bewertung}
     }
 
-    # Prüfe welche Kriterien erfüllt sind
+    # Prüfe welche Kriterien erfüllt sind (MIT ERHÖHTEN SCHWELLENWERTEN!)
     results['erfuellt_kriterien'] = {
         'ROE_min': roe_value is not None and roe_value >= SCHWELLENWERTE['ROE_min'],
         'ROIC_min': roic_value is not None and roic_value >= SCHWELLENWERTE['ROIC_min'],
@@ -65,11 +119,16 @@ def _analyze_compounder(ticker) -> Dict[str, Any]:
     erfuellte_kriterien = sum(results['erfuellt_kriterien'].values())
     gesamtkriterien = len(results['erfuellt_kriterien'])
 
+    # Berechne durchschnittliche Performance für Ranking
+    avg_performance = _calculate_average_performance(results)
+
     results['gesamtbewertung'] = {
         'erfuellte_kriterien': erfuellte_kriterien,
         'gesamtkriterien': gesamtkriterien,
         'erfolgsquote': erfuellte_kriterien / gesamtkriterien if gesamtkriterien > 0 else 0,
-        'compounder_qualitaet': _get_compounder_qualitaet(erfuellte_kriterien, gesamtkriterien)
+        'compounder_qualitaet': _get_compounder_qualitaet(erfuellte_kriterien, gesamtkriterien),
+        'durchschnittliche_performance': avg_performance,  # NEU!
+        'rank_score': _calculate_rank_score(erfuellte_kriterien, avg_performance)  # NEU!
     }
 
     return results
@@ -87,6 +146,20 @@ def _get_compounder_qualitaet(erfuellt: int, gesamt: int) -> str:
         return "Moderater Compounder"
     else:
         return "Schwacher Compounder"
+
+
+def _calculate_rank_score(erfuellte: int, avg_performance: float) -> float:
+    """
+    Berechnet einen einfachen Rank-Score für Sortierung.
+
+    Gewichtung:
+    - 70% auf Kriterien-Erfüllung (6/6 = max)
+    - 30% auf durchschnittliche Performance
+    """
+    criteria_score = (erfuellte / 6.0) * 0.70
+    performance_score = avg_performance * 0.30
+
+    return criteria_score + performance_score
 
 
 def _print_analysis_results(results: Dict[str, Any]) -> None:
@@ -117,47 +190,82 @@ def _print_analysis_results(results: Dict[str, Any]) -> None:
     gb = results['gesamtbewertung']
     print(f"  Erfüllte Kriterien: {gb['erfuellte_kriterien']} von {gb['gesamtkriterien']}")
     print(f"  Erfolgsquote: {gb['erfolgsquote']:.1%}")
+    print(f"  Durchschnittliche Performance: {gb['durchschnittliche_performance']:.2%}")
+    print(f"  Rank-Score: {gb['rank_score']:.3f}")
     print(f"  Qualität: {gb['compounder_qualitaet']}")
     print()
 
 
-def _analyze_one(ticker_symbol: str, print_results: bool=True):
+def _analyze_one(ticker_symbol: str, print_results: bool = True):
+    """Analysiert einzelne Aktie"""
     with requests.Session(impersonate="chrome") as session:
-
-        session.verify = False  # Disable SSL verification
+        session.verify = False
         ticker = yf.Ticker(ticker_symbol, session=session)
 
-        # Compounder-Analyse durchführen
         result = _analyze_compounder(ticker)
 
         if print_results:
-            # Ergebnisse anzeigen
             _print_analysis_results(result)
 
         return result
 
 
 def analyze_batch(ticker_symbols: Dict[str, str]):
+    """
+    Analysiert Batch von Aktien mit NEUEM Ranking-System
+    """
     results = {}
 
     for name, symbol in ticker_symbols.items():
         print(f"Analysiere {name}...")
         results[name] = _analyze_one(symbol, print_results=False)
 
-    # order results by the key "erfuellte_kriterien" in the dict of each element
-    sorted_results = dict(sorted(
-        results.items(), key=lambda item: item[1]['gesamtbewertung']['erfuellte_kriterien'], reverse=True
-    ))
+    # NEUES RANKING: Erst nach Kriterien, dann nach Performance innerhalb Kategorie
+    sorted_results = _sort_results_by_criteria_and_performance(results)
+
+    return sorted_results
+
+
+def _sort_results_by_criteria_and_performance(results: Dict) -> Dict:
+    """
+    Sortiert Results hierarchisch:
+    1. Nach erfüllte_kriterien (6/6 > 5/6 > 4/6 > ...)
+    2. Innerhalb Kategorie: Nach durchschnittlicher Performance
+
+    NEUER ANSATZ: Bessere Differenzierung ohne Composite Score
+    """
+    # Gruppiere nach Kriterien
+    grouped = {}
+    for name, data in results.items():
+        criteria_count = data['gesamtbewertung']['erfuellte_kriterien']
+        if criteria_count not in grouped:
+            grouped[criteria_count] = []
+        grouped[criteria_count].append((name, data))
+
+    # Sortiere jede Gruppe nach Performance
+    sorted_results = {}
+    for criteria_count in sorted(grouped.keys(), reverse=True):
+        group = grouped[criteria_count]
+        # Sortiere nach Performance (descending)
+        sorted_group = sorted(
+            group,
+            key=lambda x: x[1]['gesamtbewertung']['durchschnittliche_performance'],
+            reverse=True
+        )
+
+        for name, data in sorted_group:
+            sorted_results[name] = data
 
     return sorted_results
 
 
 if __name__ == "__main__":
     # Einzelanalyse
-    _analyze_one("DBK.F")
+    #_analyze_one("DBK.F")
 
     # Batch-Analyse
     tickers = {'adidas AG': 'ADS.F', 'Allianz SE': 'ALV.F', 'BASF SE': 'BAS.F', 'Bayer AG': 'BAYN.F', 'Beiersdorf AG': 'BEI.F', 'Bayerische Motoren Werke AG': 'BMW.F', 'Continental AG': 'CON.F', 'Covestro AG': '1COV.F', 'Deutsche Bank AG': 'DBK.F', 'Deutsche BÃ¶rse AG': 'DB1.F', 'Deutsche Post AG': 'DPW.F', 'Deutsche Telekom AG': 'DTE.F', 'E.ON SE': 'EOAN.F', 'Fresenius Medical Care AG & Co. KGaA St': 'FME.F', 'Fresenius SE & Co. KGaA': 'FRE.F', 'HeidelbergCement AG': 'HEI.F', 'Henkel AG & Co. KGaA Vz': 'HEN3.F', 'Infineon Technologies AG': 'IFX.F', 'Linde PLC': 'LIN.F', 'MERCK Kommanditgesellschaft auf Aktien': 'MRK.F', 'MÃ¼nchener RÃ¼ckversicherungs-Gesellschaft AG': 'MUV2.F', 'RWE AG': 'RWE.F', 'SAP SE': 'SAP.F', 'Siemens AG': 'SIE.F', 'Volkswagen AG': 'VOW3.F', 'Vonovia SE': 'VNA.F', 'Airbus SE': 'AIR.F', 'Brenntag AG': 'BNR.F', 'Hannover RÃ¼ck SE': 'HNR1.F', 'MTU Aero Engines AG': 'MTX.F', 'PUMA SE': 'PUM.F', 'QIAGEN N.V.': 'QIA.F', 'Sartorius AG': 'SRT3.F', 'Siemens Healthineers AG': 'SHL.F', 'Symrise AG': 'SY1.F', 'Zalando SE': 'ZAL.F', 'Siemens Energy AG': 'ENR.F', 'Porsche Automobil Holding SE': 'PAH3.F', 'Daimler Truck Holding AG': 'DTG.F', 'Mercedes-Benz Group AG': 'MBG.F'}
 
 
-    # analyze_batch(tickers)
+    res = analyze_batch(tickers)
+    print(res)
