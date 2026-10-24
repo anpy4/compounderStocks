@@ -6,12 +6,19 @@ authors = [
     {name = "anpy4",email = "cgndre@yahoo.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11,<4.0"
 dependencies = [
     "yfinance (>=0.2.66,<0.3.0)",
-    "seaborn (>=0.13.2,<0.14.0)"
+    "seaborn (>=0.13.2,<0.14.0)",
+    "curl-cffi (>=0.7.4,<1.0.0)",
+    "pytickersymbols (>=1.17.10,<2.0.0)",
+    "pandas (>=2.2.0,<4.0.0)",
+    "numpy (>=1.26.0,<3.0.0)",
+    "matplotlib (>=3.9.0,<4.0.0)"
 ]
-package-mode = "false"
+
+[tool.poetry]
+package-mode = false
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -19,10 +26,10 @@ build-backend = "poetry.core.masonry.api"
 
 [dependency-groups]
 dev = [
-    "black (>=25.9.0,<26.0.0)",
-    "certifi (>=2025.10.5,<2026.0.0)"
+    "black (>=26.3.1,<27.0.0)",
+    "certifi (>=2025.10.5,<2027.0.0)"
 
 ]
 test = [
-    "pytest (>=8.4.2,<9.0.0)"
+    "pytest (>=9.0.3,<10.0.0)"
 ]
