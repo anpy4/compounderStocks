@@ -1,45 +1,62 @@
 from typing import Tuple, Optional
 from src.thresholds import SCHWELLENWERTE
-from src.metrics.metrics import MetricCalculator
+from src.metrics.metrics import (
+    MetricCalculator, finite_number, previous_annual_period, statement_value,
+)
 
 
 class ROECalculator(MetricCalculator):
     def calculate(self, ticker) -> Tuple[Optional[float], str]:
-        # Implementation of ROE calculation
+        """Provider TTM ROE, or annual net income / average shareholders' equity."""
         try:
-            if hasattr(ticker, 'info') and 'returnOnEquity' in ticker.info:
-                roe = ticker.info['returnOnEquity']
-                if roe is not None:
-                    return roe, self.classify(roe)
-            # Fallback to manual calculation
+            try:
+                roe = finite_number(ticker.info.get('returnOnEquity'))
+            except Exception:
+                roe = None  # A failed info endpoint must not disable the fallback.
+            if roe is not None:
+                return roe, self.classify(roe)
+
             financials = ticker.financials
             balance_sheet = ticker.balance_sheet
             if financials.empty or balance_sheet.empty:
                 return None, "Keine Daten verfügbar"
-            net_income = financials.loc['Net Income'].iloc[0]
+
+            period = max(financials.columns)
+            previous = previous_annual_period(balance_sheet, period)
+            if period not in balance_sheet.columns or previous is None:
+                return None, "Nicht genügend passende Eigenkapitalperioden"
+            net_income = statement_value(financials, [
+                'Net Income Common Stockholders', 'Net Income',
+            ], period)
+            if net_income is None:
+                return None, "Nettogewinn nicht verfügbar"
+
+            equity_current = equity_previous = None
             for key in [
                 'Total Stockholder Equity',
                 'Stockholders Equity',
                 'Common Stock Equity',
-                'Total Equity Gross Minority Interest'
             ]:
-                if key in balance_sheet.index:
-                    equity_current = balance_sheet.loc[key].iloc[0]
-                    equity_previous = balance_sheet.loc[key].iloc[1]
+                current = statement_value(balance_sheet, [key], period)
+                opening = statement_value(balance_sheet, [key], previous)
+                if current is not None and opening is not None:
+                    equity_current, equity_previous = current, opening
                     break
-            avg_equity = (equity_current + equity_previous) / 2
-            if avg_equity <= 0:
+            if (equity_current is None or equity_previous is None
+                    or equity_current <= 0 or equity_previous <= 0):
                 return None, "Ungültiges Eigenkapital"
-            roe = net_income / avg_equity
-            roe = float(roe)
+            avg_equity = equity_current / 2 + equity_previous / 2
+            roe = finite_number(net_income / avg_equity)
+            if roe is None:
+                return None, "ROE nicht berechenbar"
             return roe, self.classify(roe)
         except Exception as e:
             return None, f"Fehler bei ROE-Berechnung: {str(e)}"
 
-    def classify(self, roe: float) -> str:
-        if roe >= SCHWELLENWERTE['ROE_exzellent']:
+    def classify(self, value: float) -> str:
+        if value >= SCHWELLENWERTE['ROE_exzellent']:
             return "Exzellent"
-        elif roe >= SCHWELLENWERTE['ROE_min']:
+        elif value >= SCHWELLENWERTE['ROE_min']:
             return "Gut"
         else:
             return "Schwach"

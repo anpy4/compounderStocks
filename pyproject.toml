@@ -12,7 +12,8 @@ dependencies = [
     "seaborn (>=0.13.2,<0.14.0)",
     "curl-cffi (>=0.7.4,<1.0.0)",
     "pytickersymbols (>=1.17.10,<2.0.0)",
-    "pandas (>=2.2.0,<4.0.0)",
+    # yfinance 0.2.x calls Timestamp.utcnow(), deprecated since pandas 3.0.
+    "pandas (>=2.2.0,<3.0.0)",
     "numpy (>=1.26.0,<3.0.0)",
     "matplotlib (>=3.9.0,<4.0.0)"
 ]
@@ -29,3 +30,6 @@ dev = [
 test = [
     "pytest (>=9.0.3,<10.0.0)"
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

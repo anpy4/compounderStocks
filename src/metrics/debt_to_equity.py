@@ -1,46 +1,37 @@
 from typing import Tuple, Optional
 from src.thresholds import SCHWELLENWERTE
-from src.metrics.metrics import MetricCalculator
-import pandas as pd
+from src.metrics.metrics import MetricCalculator, finite_number, statement_value, total_debt
 
 class DebtToEquityCalculator(MetricCalculator):
     def calculate(self, ticker) -> Tuple[Optional[float], str]:
-        # Implementation of Debt-to-Equity calculation
+        """Interest-bearing debt / shareholders' equity at the latest year end."""
         try:
             balance_sheet = ticker.balance_sheet
             if balance_sheet.empty:
                 return None, "Keine Bilanzdaten verfügbar"
 
-            # Eigenkapital
-            if 'Total Stockholder Equity' in balance_sheet.index:
-                equity = balance_sheet.loc['Total Stockholder Equity'].iloc[0]
-            elif 'Stockholders Equity' in balance_sheet.index:
-                equity = balance_sheet.loc['Stockholders Equity'].iloc[0]
-            else:
-                return None, "Eigenkapital nicht gefunden"
-
-            if equity <= 0:
+            period = max(balance_sheet.columns)
+            equity = statement_value(balance_sheet, [
+                'Total Stockholder Equity', 'Stockholders Equity', 'Common Stock Equity',
+            ], period)
+            if equity is None or equity <= 0:
                 return None, "Ungültiges Eigenkapital"
 
-            # Gesamtverschuldung
-            total_debt = 0
-            debt_items = ['Long Term Debt', 'Short Long Term Debt', 'Current Debt', 'Total Debt']
-            for item in debt_items:
-                if item in balance_sheet.index:
-                    debt_value = balance_sheet.loc[item].iloc[0]
-                    if pd.notna(debt_value):
-                        total_debt += debt_value
+            debt = total_debt(balance_sheet, period)
+            if debt is None:
+                return None, "Gesamtverschuldung nicht verfügbar oder ungültig"
 
-            debt_to_equity = total_debt / equity
-            debt_to_equity = float(debt_to_equity)
+            debt_to_equity = finite_number(debt / equity)
+            if debt_to_equity is None:
+                return None, "Debt-to-Equity nicht berechenbar"
             return debt_to_equity, self.classify(debt_to_equity)
         except Exception as e:
             return None, f"Fehler bei Debt-to-Equity-Berechnung: {str(e)}"
 
-    def classify(self, ratio: float) -> str:
-        if ratio <= SCHWELLENWERTE['Debt_Equity_konservativ']:
+    def classify(self, value: float) -> str:
+        if value <= SCHWELLENWERTE['Debt_Equity_konservativ']:
             return "Sehr konservativ"
-        elif ratio <= SCHWELLENWERTE['Debt_Equity_max']:
+        elif value <= SCHWELLENWERTE['Debt_Equity_max']:
             return "Konservativ"
         else:
             return "Hoch verschuldet"
