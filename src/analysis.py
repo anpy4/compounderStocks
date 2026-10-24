@@ -1,6 +1,6 @@
 import yfinance as yf
 from curl_cffi import requests
-from typing import Dict, Any, List
+from typing import Dict, Any, Optional
 import statistics
 from src.metrics.roe import ROECalculator
 from src.metrics.roic import ROICCalculator
@@ -12,19 +12,19 @@ from src.thresholds import SCHWELLENWERTE
 
 
 
-def _normalize_for_ranking(kennzahl: str, wert: float) -> float:
+def _normalize_for_ranking(kennzahl: str, wert: Optional[float]) -> float:
     """
     Normalisiert Kennzahlen für Ranking auf 0-1 Skala.
     Höhere Werte = bessere Performance
 
     Debt_Equity ist INVERS (niedriger = besser)
     """
-    if wert is None or wert == 0:
+    if wert is None:
         return 0.0
 
     # Für Debt/Equity: Invers, da niedriger besser ist
     if kennzahl == 'Debt_to_Equity':
-        # Normalisiere: 0.5 → 1.0, 1.0 → 0.5, 1.5 → 0.33
+        # Normalisiere: 0.0 → 1.0, 0.5 → 2/3, 1.5 → 0.0
         return max(0.0, min(1.0, (1.5 - wert) / 1.5))
 
     # Andere Kennzahlen: Höher = besser
@@ -56,6 +56,8 @@ def _calculate_average_performance(results: Dict[str, Any]) -> float:
             # Extrahiere kennzahl-Name aus kriterium
             # z.B. "ROE_min" → "ROE"
             kennzahl_key = kriterium.replace('_min', '').replace('_ok', '')
+            if kennzahl_key == 'Debt_Equity':
+                kennzahl_key = 'Debt_to_Equity'
 
             if kennzahl_key in results['kennzahlen']:
                 wert = results['kennzahlen'][kennzahl_key]['wert']

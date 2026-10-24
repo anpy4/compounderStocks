@@ -1,51 +1,44 @@
 from typing import Tuple, Optional
 from src.thresholds import SCHWELLENWERTE
-from src.metrics.metrics import MetricCalculator
+from src.metrics.metrics import MetricCalculator, finite_number, statement_value
 
 class FCFMarginCalculator(MetricCalculator):
     def calculate(self, ticker) -> Tuple[Optional[float], str]:
-        # Implementation of FCF Margin calculation
+        """Annual free cash flow / positive revenue for the same fiscal year."""
         try:
             cashflow = ticker.cashflow
             financials = ticker.financials
             if cashflow.empty or financials.empty:
                 return None, "Keine Daten verfügbar"
 
-            # Free Cash Flow
-            if 'Free Cash Flow' in cashflow.index:
-                fcf = cashflow.loc['Free Cash Flow'].iloc[0]
-            elif 'Operating Cash Flow' in cashflow.index and 'Capital Expenditure' in cashflow.index:
-                ocf = cashflow.loc['Operating Cash Flow'].iloc[0]
-                capex = abs(cashflow.loc['Capital Expenditure'].iloc[0])  # CapEx is usually negative
-                fcf = ocf - capex
-            else:
-                return None, "Free Cash Flow nicht berechenbar"
+            period = max(financials.columns)
+            if period not in cashflow.columns:
+                return None, "Keine übereinstimmenden Berichtsperioden"
+            fcf = statement_value(cashflow, ['Free Cash Flow'], period)
+            if fcf is None:
+                ocf = statement_value(cashflow, ['Operating Cash Flow'], period)
+                capex = statement_value(cashflow, ['Capital Expenditure'], period)
+                if ocf is None or capex is None:
+                    return None, "Free Cash Flow nicht berechenbar"
+                # Providers report investment outflows either signed or unsigned.
+                fcf = ocf - abs(capex)
 
-            # Revenue
-            revenue = None
-            for key in ['Total Revenue', 'Revenue']:
-                if key in financials.index:
-                    revenue = financials.loc[key].iloc[0]
-                    if revenue != 0:
-                        break
+            revenue = statement_value(financials, ['Total Revenue', 'Revenue'], period)
+            if revenue is None or revenue <= 0:
+                return None, "Umsatz ist nicht positiv oder nicht verfügbar"
 
-            if revenue is None or revenue == 0:
-                return None, "Umsatz ist Null oder nicht verfügbar"
-
-            # FCF-Margin mit absoluten Werten
-            fcf_margin = fcf / abs(revenue) if revenue != 0 else None
-
+            fcf_margin = finite_number(fcf / revenue)
             if fcf_margin is None:
                 return None, "FCF-Margin nicht berechenbar"
 
-            return float(fcf_margin), self.classify(fcf_margin)
+            return fcf_margin, self.classify(fcf_margin)
         except Exception as e:
             return None, f"Fehler bei FCF-Margin-Berechnung: {str(e)}"
 
-    def classify(self, fcf_margin: float) -> str:
-        if fcf_margin >= SCHWELLENWERTE['FCF_Marge_stark']:
+    def classify(self, value: float) -> str:
+        if value >= SCHWELLENWERTE['FCF_Marge_stark']:
             return "Stark"
-        elif fcf_margin >= SCHWELLENWERTE['FCF_Marge_min']:
+        elif value >= SCHWELLENWERTE['FCF_Marge_min']:
             return "Gut"
         else:
             return "Schwach"
