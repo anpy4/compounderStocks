@@ -173,7 +173,7 @@ class ChartGenerator:
                         for c in criteria_order]
 
         # Box Plot
-        bp = ax.boxplot(data_to_plot, labels=criteria_labels, patch_artist=True,
+        bp = ax.boxplot(data_to_plot, tick_labels=criteria_labels, patch_artist=True,
                         notch=True, showmeans=True)
 
         # Färbe Boxes
