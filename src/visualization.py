@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
+import re
+from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from evaluate_statistics import CompoundAnalyzer
 
@@ -127,7 +130,7 @@ class ChartGenerator:
             group = self.df[self.df['Erfuellte_Kriterien'] == criteria]
             avg_scores.append(group['Rank_Score'].mean())
             counts.append(len(group))
-            colors.append(color_map.get(criteria, '#95a5a6'))
+            colors.append(color_map.get(cast(int, criteria), '#95a5a6'))
             labels.append(f"{criteria}/6 Kriterien")
 
         # Bar Chart
@@ -179,7 +182,7 @@ class ChartGenerator:
         # Färbe Boxes
         color_map = {0: '#95a5a6', 1: '#e74c3c', 2: '#e67e22', 3: '#f39c12', 4: '#2ecc71'}
         for patch, criteria in zip(bp['boxes'], criteria_order):
-            patch.set_facecolor(color_map.get(criteria, '#95a5a6'))
+            patch.set_facecolor(color_map.get(cast(int, criteria), '#95a5a6'))
             patch.set_alpha(0.7)
 
         # Formatierung
@@ -219,7 +222,7 @@ class ChartGenerator:
 
             ax.bar(bins[:-1], counts, width=np.diff(bins),
                    label=f"{criteria}/6 Kriterien",
-                   color=color_map.get(criteria, '#95a5a6'),
+                   color=color_map.get(cast(int, criteria), '#95a5a6'),
                    alpha=0.7, edgecolor='black', linewidth=0.5)
 
         # Formatierung
@@ -322,7 +325,7 @@ class ChartGenerator:
 
         # Erstelle Matrix aus erfuellte_kriterien
         heatmap_data = []
-        companies = []
+        companies: list[str] = []
 
         for idx, row in top_companies.iterrows():
             companies.append(row['Symbol'])
@@ -337,11 +340,14 @@ class ChartGenerator:
             heatmap_data.append([roe_ok, roic_ok, fcf_ok, rev_ok, eps_ok, de_ok])
 
         # Erstelle DataFrame für Heatmap
+        criterion_columns: list[str] = [
+            'ROE\n(≥15%)', 'ROIC\n(≥16%)', 'FCF-M\n(≥10%)',
+            'RevG\n(≥8%)', 'EPSG\n(≥10%)', 'D/E\n(≤0.8)'
+        ]
         heatmap_df = pd.DataFrame(
             heatmap_data,
-            index=companies,
-            columns=['ROE\n(≥15%)', 'ROIC\n(≥16%)', 'FCF-M\n(≥10%)',
-                     'RevG\n(≥8%)', 'EPSG\n(≥10%)', 'D/E\n(≤0.8)']
+            index=pd.Index(companies),
+            columns=pd.Index(criterion_columns)
         )
 
         # Erstelle Heatmap
@@ -388,10 +394,33 @@ class ChartGenerator:
         return charts
 
 
+def find_latest_results_file() -> Path:
+    """Findet die neueste Datei im Schema results_YYYYMMDD_HHMMSS.json."""
+    results_dir = Path(__file__).resolve().parents[1] / "compounder_analysis"
+    filename_pattern = re.compile(r"^results_(\d{8}_\d{6})\.json$")
+    matching_files = []
+
+    for path in results_dir.glob("results_*.json"):
+        match = filename_pattern.fullmatch(path.name)
+        if match:
+            timestamp = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S")
+            matching_files.append((timestamp, path))
+
+    if not matching_files:
+        raise FileNotFoundError(
+            f"Keine Ergebnisdatei im Format results_YYYYMMDD_HHMMSS.json "
+            f"gefunden in: {results_dir}"
+        )
+
+    return max(matching_files, key=lambda item: item[0])[1]
+
+
 def main():
 
     # Analyzer starten
-    analyzer = CompoundAnalyzer("../compounder_analysis/results_20251112_162918.json")
+    results_file = find_latest_results_file()
+    print(f"Verwende Ergebnisdatei: {results_file}")
+    analyzer = CompoundAnalyzer(str(results_file))
 
     # Chart-Generator initialisieren
     chart_gen = ChartGenerator(analyzer)
